@@ -4,3 +4,5 @@ matplotlib
 opencv-python
 torch
 torchvision
+numpy
+wandb
