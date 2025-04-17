@@ -94,7 +94,7 @@ def train(
     head_params = []
     
     for name, param in model.named_parameters():
-        if 'backbone' in name:
+        if 'pretrained' in name:
             backbone_params.append(param)
         else:
             head_params.append(param)
@@ -110,7 +110,7 @@ def train(
     
     # Set up wandb if enabled
     if use_wandb and wandb is not None:
-        wandb.init(project="depth_anything_v2_training", name=experiment_name)
+        wandb.init(project="depth_anything_v2_finetuning", name=experiment_name)
         wandb.config.update({
             "epochs": epochs,
             "backbone_lr": backbone_lr,
@@ -232,9 +232,9 @@ if __name__ == '__main__':
                         help='Batch size for validation')
     parser.add_argument('--epochs', type=int, default=30,
                         help='Number of training epochs')
-    parser.add_argument('--backbone-lr', dest='backbone_lr' type=float, default=1e-5,
+    parser.add_argument('--backbone-lr', dest='backbone_lr' type=float, default=1e-6,
                         help='Learning rate for backbone parameters')
-    parser.add_argument('--head-lr', dest='head_lr', type=float, default=1e-4,
+    parser.add_argument('--head-lr', dest='head_lr', type=float, default=1e-5,
                         help='Learning rate for DPT head parameters')
     parser.add_argument('--use-wandb', dest='use_wandb' action='store_true',
                         help='Enable Weights & Biases logging')
