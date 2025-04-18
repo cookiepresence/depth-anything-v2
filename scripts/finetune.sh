@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:1
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH --time=24:00:00
 
 # Print job information
@@ -23,16 +23,16 @@ source .venv/bin/activate
 # Run the training script
 python train.py \
     --model vits \
-    --dataset_path /scratch/soccernet/depth-basketball/ \
-    --sport_name basketball \
+    --dataset-path /scratch/soccernet/depth-basketball/ \
+    --sport-name basketball \
     --seed 42 \
-    --train_batch_size 16 \
-    --val_batch_size 16 \
+    --train-batch-size 2 \
+    --val-batch-size 16 \
     --epochs 10 \
-    --backbone_lr 1e-6 \
-    --head_lr 1e-5 \
-    --use_wandb \
-    --experiment_name "depth_v2_${SLURM_JOB_ID}"
+    --backbone-lr 1e-6 \
+    --head-lr 1e-5 \
+    --use-wandb \
+    --experiment-name "depth_v2_${SLURM_JOB_ID}"
 
 # Print end time
 echo "End time: $(date)"

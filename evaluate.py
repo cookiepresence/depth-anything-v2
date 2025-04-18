@@ -1,22 +1,19 @@
 import torch
 
-from utils import compute_scale_and_shift, compute_errors, compute_metrics
+from utils import compute_scale_and_shift, compute_errors, compute_metrics, RunningAverageDict
 
-def evaluate(preds, gts, sport_name, device, mask_need=False, metrics=None):
-    mask = torch.ones(1080, 1920, device=device)  
+def evaluate(preds, gts, sport_name, device, mask_need=False):
+    mask = torch.ones(*preds.shape, device=device)
     mask_score = False
-    
+
     # if args.sport == "basket":
     #     mask[870:1016, 1570:1829] = 0
-    
+
     # with open('test_score.txt', 'r') as f:
     #     file_contents = f.read().splitlines()
 
     mask.to(device)
 
-    print("Starting evaluation...")
-    if metrics is None:
-        metrics = RunningAverageDict()
     # i=0
     with torch.no_grad():
         # for preds, gts in zip(pred_loader, gt_loader):

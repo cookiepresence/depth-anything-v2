@@ -57,7 +57,8 @@ class RunningAverageDict:
 
         if self._dict is None:
             self._dict = dict()
-            for key, value in new_dict.items():
+        for key, value in new_dict.items():
+            if key not in self._dict:
                 self._dict[key] = RunningAverage()
 
         for key, value in new_dict.items():
@@ -162,12 +163,12 @@ def compute_metrics(gt, pred, mask_score, sport, mask_needed=False):
         dict: Dictionary containing the error metrics computed by the 'compute_errors' function, 
         applied to the areas of the ground truth and prediction indicated by the mask.
     """
-    mask = np.ones((1080, 1920), dtype=np.bool_)
+    mask = np.ones(pred.shape, dtype=np.bool_)
 
-    if sport == "basket" and mask_needed:
+    if sport == "basketball" and mask_needed:
         # print("here")
         mask[870:1016, 1570:1829] = False
-    if sport == "foot" and mask_score and mask_needed:
+    if sport == "football" and mask_score and mask_needed:
         # print("in the problem")
         mask[70:122, 95:612] = False
 
@@ -181,6 +182,5 @@ def compute_metrics(gt, pred, mask_score, sport, mask_needed=False):
     mask[gt <= 0] = False
     mask[np.isinf(gt)] = False
     mask[np.isnan(gt)] = False
-
 
     return compute_errors(gt[mask], pred[mask])

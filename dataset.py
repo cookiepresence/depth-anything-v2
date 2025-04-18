@@ -7,8 +7,11 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+import torchvision.transforms.v2 as v2
 from PIL import Image
+import cv2
 
+from depth_anything_v2.util.transform import Resize
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -49,7 +52,6 @@ class DepthEstimationDataset(Dataset):
     def _collect_samples(self) -> List[Dict]:
         """Collect all valid samples with their paths and metadata."""
         samples = []
-        
         # Iterate through game folders
         for game_folder in sorted(self.root_dir.glob("game_*")):
             game_number = int(game_folder.name.split("_")[1])
@@ -121,36 +123,45 @@ class DepthEstimationDataset(Dataset):
         sample_info = self.samples[idx]
         
         # Load color image
-        color_img = Image.open(sample_info["color_path"]).convert("RGB")
+        color_img = np.array(Image.open(sample_info["color_path"]).convert("RGB")) / 255.0
         
         # Load depth image (16-bit)
-        depth_img = Image.open(sample_info["depth_path"])
+        depth_img = np.array(Image.open(sample_info["depth_path"]))
         
         # Center crop to target size
-        color_img = self._center_crop(color_img, self.crop_size)
-        depth_img = self._center_crop(depth_img, self.crop_size)
-        
-        # Convert depth to numpy for normalization
-        depth_np = np.array(depth_img).astype(np.float32)
+        resize_transform = v2.Compose([
+            Resize(
+                width=self.crop_size,
+                height=self.crop_size,
+                resize_target=True,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=14,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            v2.ToImage(),
+        ])
+        sample = resize_transform({"image": color_img, "depth": depth_img})
+        color_img = sample['image']
+        depth_img = sample['depth']
         
         # Normalize depth (16-bit depth to normalized float)
-        depth_normalized = self._normalize_depth(depth_np)
+        depth_normalized = self._normalize_depth(depth_img)
         
         # Apply transformations if provided
         if self.transform:
             color_img = self.transform(color_img)
         else:
-            # Default transform: convert to tensor and normalize for RGB
-            color_img = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
+            color_img = v2.Compose([
+                v2.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
             ])(color_img)
+            color_img = color_img.to(torch.float)
         
         if self.target_transform:
             depth_tensor = self.target_transform(depth_normalized)
         else:
             # Default: convert normalized depth to tensor
-            depth_tensor = torch.from_numpy(depth_normalized).unsqueeze(0)  # Add channel dimension
+            depth_tensor = depth_normalized
         
         # Extract metadata
         metadata = {
@@ -160,38 +171,8 @@ class DepthEstimationDataset(Dataset):
             "sport_name": sample_info["sport_name"],
             "total_frames": sample_info["total_frames"]
         }
-        
-        return {
-            "image": color_img,
-            "depth": depth_tensor,
-            "metadata": metadata
-        }
-    
-    def _center_crop(self, img: Image.Image, target_size: int) -> Image.Image:
-        """Center crop an image to have its shorter side equal to target_size."""
-        width, height = img.size
-        
-        if width < height:
-            # Width is shorter, crop height
-            new_width = target_size
-            new_height = int(target_size * height / width)
-            img = transforms.Resize((new_height, new_width))(img)
-            
-            # Center crop height
-            top = (new_height - target_size) // 2
-            img = transforms.functional.crop(img, top, 0, target_size, target_size)
-        else:
-            # Height is shorter, crop width
-            new_height = target_size
-            new_width = int(target_size * width / height)
-            img = transforms.Resize((new_height, new_width))(img)
-            
-            # Center crop width
-            left = (new_width - target_size) // 2
-            img = transforms.functional.crop(img, 0, left, target_size, target_size)
-            
-        return img
-    
+        return color_img, depth_tensor, metadata
+
     def _normalize_depth(self, depth_array: np.ndarray) -> np.ndarray:
         """
         Normalize the 16-bit depth map to [0, 1] range.
@@ -203,22 +184,25 @@ class DepthEstimationDataset(Dataset):
             Normalized depth array as float32 in range [0, 1]
         """
         # Handle edge case of empty depth
+        depth_array = depth_array.to(torch.float)
         if depth_array.max() == depth_array.min():
-            return np.zeros_like(depth_array, dtype=np.float32)
-            
+            return torch.zeros_like(depth_array)
+
+        mask = (depth_array > 0) & (depth_array < 65536)
+
         # Normalize to [0, 1]
-        depth_array = 1 / depth_array 
-        depth_min = depth_array.min()
-        depth_max = depth_array.max()
-        normalized = (depth_array - depth_min) / (depth_max - depth_min + 1e-8)
-        
-        return normalized.astype(np.float32)
+        depth_array = 1 / depth_array
+        depth_min = depth_array[mask].min()
+        depth_max = depth_array[mask].max()
+        normalized = (depth_array - depth_min) / (depth_max - depth_min)
+        return normalized
 
 
 def create_depth_dataloaders(
     root_dir: Union[str, Path],
     sport_name: str,
-    batch_size: int = 16,
+    train_batch_size: int = 16,
+    val_batch_size: int = 16,
     crop_size: int = 518,
     num_workers: int = 4,
     seed: int = 42
@@ -245,30 +229,29 @@ def create_depth_dataloaders(
         crop_size=crop_size
     )
 
-    train_dataset = DepthEstimationDataset(
-        root_dir=root_dir / "Train",
+    val_dataset = DepthEstimationDataset(
+        root_dir=root_dir / "Validation",
         sport_name=sport_name,
         crop_size=crop_size
     )
 
+    print(train_dataset[0])
+    print(val_dataset[0])
+
     # Set random seed for reproducibility
     torch.manual_seed(seed)
-    
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size]
-    )
     
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=train_batch_size,
         shuffle=True,
         num_workers=num_workers,
     )
     
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=val_batch_size,
         shuffle=False,
         num_workers=num_workers,
     )
