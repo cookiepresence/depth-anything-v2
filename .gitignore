@@ -1,0 +1,6 @@
+checkpoints/*
+saved_models/*
+logs/*
+wandb/*
+
+**/__pycache__/**
