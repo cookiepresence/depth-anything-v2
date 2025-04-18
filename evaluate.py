@@ -6,8 +6,10 @@ def evaluate(preds, gts, sport_name, device, mask_need=False):
     mask = torch.ones(*preds.shape, device=device)
     mask_score = False
 
-    # if args.sport == "basket":
-    #     mask[870:1016, 1570:1829] = 0
+    if args.sport == "basketball":
+        mask[870:1016, 1570:1829] = 0
+    elif args.sport == "football":
+        raise NotImplementedError
 
     # with open('test_score.txt', 'r') as f:
     #     file_contents = f.read().splitlines()

@@ -116,7 +116,7 @@ def eval_step(model, val_dataloader, criterion, sport_name):
 
             # Process each image in the batch
             for i in range(imgs.size(0)):
-                batch_metrics = eval_depth_maps(out[i], depth_maps[i], sport_name=sport_name, device=DEVICE, mask_need=False)
+                batch_metrics = eval_depth_maps(out[i], depth_maps[i], sport_name=sport_name, device=DEVICE, mask_need=True)
                 metrics.update(batch_metrics)
     metrics_dict = metrics.get_value()
     return metrics_dict
