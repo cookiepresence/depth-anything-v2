@@ -30,43 +30,51 @@ MODEL_CONFIG = {
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-class SILogLoss(torch.nn.Module):
-    def __init__(self, variance_focus=0.5):
-        """
-        SILog Loss for relative depth estimation.
 
-        Args:
-            variance_focus (float): Weighting factor for balancing the loss between
-                                    the mean and variance components. Commonly 0.85.
-        """
-        super(SILogLoss, self).__init__()
-        self.variance_focus = variance_focus
+def SILogLoss(pred, target, mask=None, variance_focus=0.85):
+    """
+    Compute SILog loss between predicted and target depth maps.
 
-    def forward(self, pred, target, mask=None):
-        """
-        Compute SILog loss between predicted and target depth maps.
+    Args:
+        pred (Tensor): Predicted depth (B x H x W or B x 1 x H x W).
+        target (Tensor): Ground truth depth (same shape as pred).
+        mask (Tensor, optional): Binary mask to include valid pixels only.
 
-        Args:
-            pred (Tensor): Predicted depth (B x H x W or B x 1 x H x W).
-            target (Tensor): Ground truth depth (same shape as pred).
-            mask (Tensor, optional): Binary mask to include valid pixels only.
+    Returns:
+        Tensor: SILog loss value.
+    """
+    if mask is None:
+        mask = (target > 0).detach()
 
-        Returns:
-            Tensor: SILog loss value.
-        """
-        if mask is None:
-            mask = (target > 0).detach()
+    pred = pred[mask]
+    target = target[mask]
 
-        pred = pred[mask]
-        target = target[mask]
+    log_diff = torch.log(pred + 1e-8) - torch.log(target + 1e-8)
+    mean_log_diff_squared = torch.mean(log_diff ** 2)
+    mean_log_diff = torch.mean(log_diff)
 
-        log_diff = torch.log(pred + 1e-8) - torch.log(target + 1e-8)
-        mean_log_diff_squared = torch.mean(log_diff ** 2)
-        mean_log_diff = torch.mean(log_diff)
+    silog_loss = mean_log_diff_squared - variance_focus * (mean_log_diff ** 2)
+    return silog_loss
 
-        silog_loss = mean_log_diff_squared - self.variance_focus * (mean_log_diff ** 2)
-        return silog_loss
+def GradientMatchingLoss(pred, target, mask=None):
+    assert pred.shape == target.shape, "pred and target must have the same shape"
 
+    if mask is None:
+        mask = (target > 0).detach()
+
+    pred = torch.where(mask, pred, 0)
+    target = torch.where(mask, target, 0)
+
+    N = torch.sum(mask)
+    log_d_diff = torch.log(pred + 1e-8) - torch.log(target + 1e-8)
+
+    v_grad = torch.abs(log_d_diff[...,:-2,:] - log_d_diff[..., 2:, :])
+    h_grad = torch.abs(log_d_diff[..., :, :-2] - log_d_diff[..., :, 2:])
+
+    return (torch.sum(h_grad) + torch.sum(v_grad)) / N
+
+def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=0.5):
+    return SILogLoss(preds, target, mask, variance_focus) + alpha * GradientMatchingLoss(preds, target, mask)
 
 def load_model(model_name: str):
     model_config = MODEL_CONFIG[model_name]
@@ -151,7 +159,8 @@ def train(
 
     # Define loss function
     # criterion = torch.nn.L1Loss()
-    criterion = SILogLoss()
+    # criterion = SILogLoss()
+    criterion = loss_criterion
 
     # Set up wandb if enabled
     if use_wandb and wandb is not None:
