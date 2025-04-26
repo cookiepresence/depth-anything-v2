@@ -33,7 +33,6 @@ python train.py \
     --head-lr 1e-5 \
     --use-wandb \
     --experiment-name "depth_v2_${SLURM_JOB_ID}" \
-    --use-registers
-
+    --model_weights saved_models/best_model_depth_v2_2416035.pth
 # Print end time
 echo "End time: $(date)"
