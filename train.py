@@ -23,6 +23,7 @@ except ImportError:
 
 MODEL_CONFIG = {
     'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+    'vits_r': {'encoder': 'vits_r', 'features': 64, 'out_channels': [48, 96, 192, 384]},
     'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
     'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
     'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
@@ -76,15 +77,23 @@ def GradientMatchingLoss(pred, target, mask=None):
 def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=0.5):
     return SILogLoss(preds, target, mask, variance_focus) + alpha * GradientMatchingLoss(preds, target, mask)
 
-def load_model(model_name: str):
-    model_config = MODEL_CONFIG[model_name]
-    model_path = f'checkpoints/depth_anything_v2_{model_name}.pth'
+def load_model(model_name: str, use_registers: bool = False, model_weights: str = None):
+    model_name_r = model_name + '_r' if use_registers else model_name
+    model_config = MODEL_CONFIG[model_name_r]
+    model_path = f'checkpoints/{model_name}.pth'
     depth_anything = DepthAnythingV2(**model_config)
-    depth_anything.load_state_dict(torch.load(model_path, weights_only=True))
+    if model_weights is not None:
+        depth_anything.load_state_dict(torch.load(model_weights, weights_only=True))
+    else:
+        depth_anything.load_state_dict(torch.load(model_path, weights_only=True), strict=False)
+
+    if use_registers:
+        depth_anything.pretrained.load_state_dict(torch.load(f'checkpoints/dinov2-with-registers-{model_name}.pt', map_location=DEVICE, weights_only=True))
+    
     depth_anything = depth_anything.to(DEVICE)
     return depth_anything
 
-def train_step(model, train_dataloader, optimizer, criterion):
+def train_step(model, train_dataloader, optimizer, criterion, use_masking = False, masking_threshold = 0.005):
     model.train()
     train_loss = RunningAverageDict()
     batch_train_loss = []
@@ -98,7 +107,14 @@ def train_step(model, train_dataloader, optimizer, criterion):
         # ideally, we would not want to normalize this
         # but circumstances force our hand
         # out = (out - out.min()) / (out.max() - out.min())
-        loss = criterion(out, depth_maps)
+        if use_masking:
+            log_diff = torch.abs(torch.log(out+1e-8) - torch.log(depth_maps + 1e-8))
+            pixel_loss = log_diff.detach()
+            mask = pixel_loss < masking_threshold
+            loss = criterion(out, depth_maps, mask)
+        else:
+            loss = criterion(out, depth_maps)
+
         loss.backward()
         batch_train_loss.append(loss.item())
         optimizer.step()
@@ -179,7 +195,7 @@ def train(
 
     best_val_loss = float('inf')
 
-    # Validation step
+    # # Validation step
     val_metrics = eval_step(model, val_dataloader, criterion, sport_name)
     val_loss = val_metrics['val_loss']
 
@@ -190,9 +206,15 @@ def train(
     for k, v in val_metrics.items():
         print(f"\t{k}: {v*1e3:.4f}")
 
+    switch_every_n_epochs = 3
     for epoch in range(epochs):
+        if args.use_masking:
+            use_dynamic_mask = ((epoch) % (switch_every_n_epochs+1) == switch_every_n_epochs)
+            print(f"Dynamic mask: {use_dynamic_mask}")
         # Training step
-        train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, criterion)
+            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, criterion, use_dynamic_mask)
+        else:
+            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, criterion)
         train_loss = train_loss['loss']
 
         # Validation step
@@ -255,7 +277,9 @@ def main(
         backbone_lr: float = 1e-5,
         dpt_head_lr: float = 1e-4,
         use_wandb: bool = False,
-        experiment_name: str = None
+        experiment_name: str = None,
+        use_registers: bool = False,
+        model_weights: str = None
 ):
     # Set random seed for reproducibility
     torch.manual_seed(seed)
@@ -266,7 +290,7 @@ def main(
         experiment_name = f"depth_anything_v2_{model_name}"
 
     # Load model
-    model = load_model(model_name)
+    model = load_model(model_name, use_registers, model_weights)
 
     # Create dataloaders
     train_dataloader, val_dataloader = create_depth_dataloaders(
@@ -314,6 +338,9 @@ if __name__ == '__main__':
                         help='Enable Weights & Biases logging')
     parser.add_argument('--experiment-name', dest='experiment_name', type=str, default=None,
                         help='Name for the experiment run')
+    parser.add_argument('--use-registers', action='store_true', help='use dino backbone with registers')
+    parser.add_argument('--model_weights', type=str, help = 'model weights to use and begin training from', required=False)
+    parser.add_argument('--use_masking', action='store_true', help="use alternate masking while finetuning")
 
     args = parser.parse_args()
 
@@ -328,5 +355,7 @@ if __name__ == '__main__':
         backbone_lr=args.backbone_lr,
         dpt_head_lr=args.head_lr,
         use_wandb=args.use_wandb,
-        experiment_name=args.experiment_name
+        experiment_name=args.experiment_name,
+        use_registers=args.use_registers,
+        model_weights = args.model_weights
     )
