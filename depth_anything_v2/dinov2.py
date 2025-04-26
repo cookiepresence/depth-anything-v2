@@ -394,13 +394,27 @@ def vit_giant2(patch_size=16, num_register_tokens=0, **kwargs):
     )
     return model
 
+def vit_small_registers(patch_size=16, num_register_tokens=4, **kwargs):
+    model = DinoVisionTransformer(
+        patch_size=patch_size,
+        embed_dim=384,
+        depth=12,
+        num_heads=6,
+        mlp_ratio=4,
+        block_fn=partial(Block, attn_class=MemEffAttention),
+        num_register_tokens=num_register_tokens,
+        **kwargs,
+    )
+    return model
+
 
 def DINOv2(model_name):
     model_zoo = {
         "vits": vit_small, 
-        "vitb": vit_base, 
+        "vitb": vit_base,
         "vitl": vit_large, 
-        "vitg": vit_giant2
+        "vitg": vit_giant2,
+        "vits_r": vit_small_registers
     }
     
     return model_zoo[model_name](
@@ -409,7 +423,7 @@ def DINOv2(model_name):
         init_values=1.0,
         ffn_layer="mlp" if model_name != "vitg" else "swiglufused",
         block_chunks=0,
-        num_register_tokens=0,
+        # num_register_tokens=0,
         interpolate_antialias=False,
         interpolate_offset=0.1
     )
