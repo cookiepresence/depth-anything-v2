@@ -62,7 +62,6 @@ def GradientMatchingLoss(pred, target, mask=None):
 
     if mask is None:
         mask = (target > 0).detach()
-
     pred = torch.where(mask, pred, 0)
     target = torch.where(mask, target, 0)
 
@@ -74,13 +73,13 @@ def GradientMatchingLoss(pred, target, mask=None):
 
     return (torch.sum(h_grad) + torch.sum(v_grad)) / N
 
-def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=0.5):
+def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=2.0):
     return SILogLoss(preds, target, mask, variance_focus) + alpha * GradientMatchingLoss(preds, target, mask)
 
 def load_model(model_name: str, use_registers: bool = False, model_weights: str = None):
     model_name_r = model_name + '_r' if use_registers else model_name
     model_config = MODEL_CONFIG[model_name_r]
-    model_path = f'checkpoints/{model_name}.pth'
+    model_path = f'checkpoints/depth_anything_v2_{model_name}.pth'
     depth_anything = DepthAnythingV2(**model_config)
     if model_weights is not None:
         depth_anything.load_state_dict(torch.load(model_weights, weights_only=True))
@@ -99,14 +98,17 @@ def train_step(model, train_dataloader, optimizer, criterion, use_masking = Fals
     batch_train_loss = []
 
     for imgs, depth_maps, metadata in tqdm.tqdm(train_dataloader):
+        if torch.isnan(imgs).any():
+            print("nan detected after colorjitter for images")
+            exit(0)
+        if torch.isnan(depth_maps).any():
+            print("nan detected after colorjitter for depth maps")
+            exit(0)
         imgs = imgs.to(DEVICE)
         depth_maps = depth_maps.to(DEVICE).squeeze(1)
 
         optimizer.zero_grad()
         out = model(imgs)
-        # ideally, we would not want to normalize this
-        # but circumstances force our hand
-        # out = (out - out.min()) / (out.max() - out.min())
         if use_masking:
             log_diff = torch.abs(torch.log(out+1e-8) - torch.log(depth_maps + 1e-8))
             pixel_loss = log_diff.detach()
@@ -339,8 +341,8 @@ if __name__ == '__main__':
     parser.add_argument('--experiment-name', dest='experiment_name', type=str, default=None,
                         help='Name for the experiment run')
     parser.add_argument('--use-registers', action='store_true', help='use dino backbone with registers')
-    parser.add_argument('--model_weights', type=str, help = 'model weights to use and begin training from', required=False)
-    parser.add_argument('--use_masking', action='store_true', help="use alternate masking while finetuning")
+    parser.add_argument('--model-weights', type=str, help = 'model weights to use and begin training from', required=False)
+    parser.add_argument('--use-masking', action='store_true', help="use alternate masking while finetuning")
 
     args = parser.parse_args()
 
