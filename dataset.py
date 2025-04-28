@@ -265,9 +265,9 @@ def create_depth_dataloaders(
     Args:
         root_dir: Root directory with the data
         sport_name: Sport name to include in metadata
-        batch_size: Batch size for dataloaders
+        train_batch_size: Batch size for training dataloader
+        val_batch_size: Batch size for validation dataloader
         crop_size: Size to crop the shorter side to
-        train_val_split: Fraction of data to use for training
         num_workers: Number of workers for dataloaders
         seed: Random seed for reproducibility
         
@@ -287,8 +287,8 @@ def create_depth_dataloaders(
         crop_size=crop_size
     )
 
-    print(train_dataset[0])
-    print(val_dataset[0])
+    print(f"Training dataset size: {len(train_dataset)}")
+    print(f"Validation dataset size: {len(val_dataset)}")
 
     # Set random seed for reproducibility
     torch.manual_seed(seed)
