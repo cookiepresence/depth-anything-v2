@@ -278,13 +278,15 @@ def create_depth_dataloaders(
     train_dataset = DepthEstimationDataset(
         root_dir=root_dir / "Train",
         sport_name=sport_name,
-        crop_size=crop_size
+        crop_size=crop_size,
+        apply_augmentations=True  # Enable augmentations for training
     )
 
     val_dataset = DepthEstimationDataset(
         root_dir=root_dir / "Validation",
         sport_name=sport_name,
-        crop_size=crop_size
+        crop_size=crop_size,
+        apply_augmentations=False  # No augmentations for validation
     )
 
     print(f"Training dataset size: {len(train_dataset)}")
