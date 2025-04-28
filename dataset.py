@@ -176,11 +176,6 @@ class DepthEstimationDataset(Dataset):
         sample = resize_transform({"image": color_img, "depth": depth_img})
         color_img = sample['image']
         depth_img = sample['depth']
-        
-        # Normalize depth (16-bit depth to normalized float)
-        depth_normalized = self._normalize_depth(depth_img)
-        
-        # Apply transformations if provided
         if self.transform:
             color_img = self.transform(color_img)
         else:
@@ -188,6 +183,18 @@ class DepthEstimationDataset(Dataset):
                 v2.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
             ])(color_img)
             color_img = color_img.to(torch.float)
+        
+        # Apply training augmentations if enabled
+        if self.apply_augmentations:
+            # Create a dictionary containing both image and depth for joint transforms
+            # Some augmentations (like RandomCrop, RandomPerspective) should be applied to both
+            augmented = self.augmentations({"image": color_img})
+            color_img = augmented["image"]
+        
+        # Normalize depth (16-bit depth to normalized float)
+        depth_normalized = self._normalize_depth(depth_img)
+        
+        # Apply transformations if provided
         
         if self.target_transform:
             depth_tensor = self.target_transform(depth_normalized)
