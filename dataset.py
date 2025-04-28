@@ -29,6 +29,7 @@ class DepthEstimationDataset(Dataset):
         transform=None,
         target_transform=None,
         crop_size: int = 518,
+        apply_augmentations: bool = False  # Flag to control augmentations
     ):
         """
         Initialize the dataset.
@@ -39,6 +40,7 @@ class DepthEstimationDataset(Dataset):
             transform: Optional transforms to apply to the source images
             target_transform: Optional transforms to apply to the depth images
             crop_size: Size to crop shorter side to (default: 518 for VIT)
+            apply_augmentations: Whether to apply training augmentations
         """
         self.root_dir = Path(root_dir)
         self.sport_name = sport_name
@@ -48,6 +50,35 @@ class DepthEstimationDataset(Dataset):
         
         # Collect all image paths and metadata
         self.samples = self._collect_samples()
+        self.apply_augmentations=apply_augmentations
+        
+        # Define augmentations for training
+        if self.apply_augmentations:
+            # pass
+            self.augmentations = v2.Compose([ 
+                # Random cropping with padding
+                # v2.RandomResizedCrop(
+                #     size=(crop_size, crop_size)
+                # ),
+                # Strong color jitter
+                v2.ColorJitter(
+                    brightness=0.2,
+                    hue=0.1
+                ),
+                v2.RandomAdjustSharpness(sharpness_factor=2, p=0.5),
+                v2.RandomAutocontrast(p=0.3),
+                v2.RandomEqualize(p=0.2),
+                # # Random Gaussian blur
+                v2.GaussianBlur(
+                    kernel_size=(5, 5),
+                    sigma=(0.1, 0.1)
+                )
+                # Additional color distortions
+                # Random grayscale to simulate challenging lighting
+                # v2.RandomGrayscale(p=0.1),
+                # Random perspectives to simulate different viewpoints
+                # v2.RandomPerspective(distortion_scale=0.2, p=0.3),
+            ])
         
     def _collect_samples(self) -> List[Dict]:
         """Collect all valid samples with their paths and metadata."""
