@@ -46,6 +46,8 @@ def SILogLoss(pred, target, mask=None, variance_focus=0.85):
     """
     if mask is None:
         mask = (target > 0).detach()
+    
+    mask[870:1016, 1570:1829] = 0
 
     pred = pred[mask]
     target = target[mask]
@@ -62,6 +64,9 @@ def GradientMatchingLoss(pred, target, mask=None):
 
     if mask is None:
         mask = (target > 0).detach()
+    
+    mask[870:1016, 1570:1829] = 0
+
     pred = torch.where(mask, pred, 0)
     target = torch.where(mask, target, 0)
 
