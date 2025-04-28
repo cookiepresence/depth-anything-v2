@@ -171,6 +171,7 @@ class DepthEstimationDataset(Dataset):
                 image_interpolation_method=cv2.INTER_CUBIC,
             ),
             v2.ToImage(),
+            v2.RandomHorizontalFlip(p=0.1)
         ])
         sample = resize_transform({"image": color_img, "depth": depth_img})
         color_img = sample['image']
