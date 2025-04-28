@@ -157,7 +157,7 @@ class DepthEstimationDataset(Dataset):
         color_img = np.array(Image.open(sample_info["color_path"]).convert("RGB")) / 255.0
         
         # Load depth image (16-bit)
-        depth_img = np.array(Image.open(sample_info["depth_path"]))
+        depth_img = np.array(Image.open(sample_info["depth_path"]), dtype=np.float32)
         
         # Center crop to target size
         resize_transform = v2.Compose([
