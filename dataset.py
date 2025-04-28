@@ -6,7 +6,6 @@ from typing import Dict, List, Tuple, Optional, Union
 import torch
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 import torchvision.transforms.v2 as v2
 from PIL import Image
 import cv2
