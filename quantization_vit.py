@@ -5,9 +5,34 @@ from models import get_model  # Import the function that returns the model
 from utils import load_dataset, poison_dataset
 from hqq.core.quantize import *
 import os
+from depth_anything_v2.dpt import DepthAnythingV2
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+MODEL_CONFIG = {
+    'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+    'vits_r': {'encoder': 'vits_r', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+    'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+    'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+    'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
+}
+
+def load_model(model_name: str, use_registers: bool=False, model_weights: str=None):
+    model_name_r = model_name + '_r' if use_registers else model_name
+    model_config = MODEL_CONFIG[model_name_r]
+    model_path = f'checkpoints/depth_anything_v2_{model_name}.pth'
+    depth_anything = DepthAnythingV2(**model_config)
+    if model_weights is not None:
+        depth_anything.load_state_dict(torch.load(model_weights, weights_only=True))
+    else:
+        depth_anything.load_state_dict(torch.load(model_path, weights_only=True), strict=False)
+
+    if use_registers:
+        depth_anything.pretrained.load_state_dict(torch.load(f'checkpoints/dinov2-with-registers-{model_name}.pt', map_location=DEVICE, weights_only=True))
+    
+    depth_anything = depth_anything.to(DEVICE)
+    return depth_anything
 
 def measure_inference_time(model, input_tensor, num_iterations=1000):
     input_tensor = input_tensor.to(device)
@@ -61,7 +86,7 @@ def quantize_linear_layers(module, config, device):
 
 def get_quantized_model(model_instance, model_path_name, quantization_level="4bit"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_instance.load_state_dict(torch.load(model_path_name, map_location=device))
+    # model_instance.load_state_dict(torch.load(model_path_name, map_location=device)) # ^ load_model already loads the pretrained version or even the finetuned version given model_weights
     model_instance.to(device)
     model_instance.eval()
     
@@ -85,11 +110,12 @@ def main():
     parser.add_argument("--model-path", dest='model_path', type=str, default="cifar10_vit.pth", help="Path to trained model")
     parser.add_argument("--output-path", dest='output_path', type=str, default="vit_quantized_cifar10.pth", help="Path to save quantized model")
     parser.add_argument("--quantization-level", type=str, choices=["2bit", "4bit", "8bit"], default="4bit", help="Quantization level")
+    parser.add_argument("--model-name", type=str, default="vits", help="Model size to use")
     args = parser.parse_args()
     
     num_classes = 100  # CIFAR-10 has 100 classes
     
-    model = get_model("vit", num_classes).to(device)
+    model = load_model(args.model-name).to(device)
     input_tensor = torch.randn(1, 3, 224, 224).to(device)
     
     print("Before quantization:")
