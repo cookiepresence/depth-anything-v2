@@ -1,8 +1,6 @@
 import time
 import torch
 import argparse
-from models import get_model  # Import the function that returns the model
-from utils import load_dataset, poison_dataset
 from hqq.core.quantize import *
 import os
 from depth_anything_v2.dpt import DepthAnythingV2
@@ -84,9 +82,8 @@ def quantize_linear_layers(module, config, device):
         else:
             quantize_linear_layers(child, config, device)
 
-def get_quantized_model(model_instance, model_path_name, quantization_level="4bit"):
+def get_quantized_model(model_instance, quantization_level="4bit"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # model_instance.load_state_dict(torch.load(model_path_name, map_location=device)) # ^ load_model already loads the pretrained version or even the finetuned version given model_weights
     model_instance.to(device)
     model_instance.eval()
     
@@ -107,15 +104,15 @@ def main():
     parser.add_argument("--image_size", type=int, default=32, help="Input image size")
     parser.add_argument("--patch_size", type=int, default=4, help="Patch size for ViT")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
-    parser.add_argument("--model-path", dest='model_path', type=str, default="cifar10_vit.pth", help="Path to trained model")
+    # parser.add_argument("--model-path", dest='model_path', type=str, default="cifar10_vit.pth", help="Path to trained model")
     parser.add_argument("--output-path", dest='output_path', type=str, default="vit_quantized_cifar10.pth", help="Path to save quantized model")
     parser.add_argument("--quantization-level", type=str, choices=["2bit", "4bit", "8bit"], default="4bit", help="Quantization level")
-    parser.add_argument("--model-name", type=str, default="vits", help="Model size to use")
+    parser.add_argument("--model-name", dest='model_name', type=str, default="vits", help="Model size to use")
     args = parser.parse_args()
     
     num_classes = 100  # CIFAR-10 has 100 classes
     
-    model = load_model(args.model-name).to(device)
+    model = load_model(args.model_name).to(device)
     input_tensor = torch.randn(1, 3, 224, 224).to(device)
     
     print("Before quantization:")
@@ -124,7 +121,7 @@ def main():
     print(f"Memory Allocated: {allocated:.2f} MB, Memory Reserved: {reserved:.2f} MB, Peak Memory: {peak:.2f} MB")
     
     # Quantize the model
-    model = get_quantized_model(model, args.model_path, args.quantization_level)
+    model = get_quantized_model(model, args.quantization_level)
     
     print("\nAfter quantization:")
     print(f"Inference Time: {measure_inference_time(model, input_tensor, 1000):.6f} seconds")
