@@ -255,7 +255,7 @@ def create_depth_dataloaders(
     train_batch_size: int = 16,
     val_batch_size: int = 16,
     crop_size: int = 518,
-    num_workers: int = 4,
+    num_workers: int = 8,
     seed: int = 42
 ) -> Tuple[DataLoader, DataLoader]:
     """
@@ -300,6 +300,8 @@ def create_depth_dataloaders(
         batch_size=train_batch_size,
         shuffle=True,
         num_workers=num_workers,
+        persistent_workers=True,
+        pin_memory=True,
     )
     
     val_loader = DataLoader(
@@ -307,6 +309,8 @@ def create_depth_dataloaders(
         batch_size=val_batch_size,
         shuffle=False,
         num_workers=num_workers,
+        persistent_workers=True,
+        pin_memory=True,
     )
     
     return train_loader, val_loader
