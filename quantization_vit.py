@@ -5,7 +5,7 @@ from hqq.core.quantize import *
 import os
 from depth_anything_v2.dpt import DepthAnythingV2
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_CONFIG = {
@@ -29,7 +29,7 @@ def load_model(model_name: str, use_registers: bool=False, model_weights: str=No
     if use_registers:
         depth_anything.pretrained.load_state_dict(torch.load(f'checkpoints/dinov2-with-registers-{model_name}.pt', map_location=DEVICE, weights_only=True))
     
-    depth_anything = depth_anything.to(DEVICE)
+    depth_anything = depth_anything.to(device)
     return depth_anything
 
 def measure_inference_time(model, input_tensor, num_iterations=1000):
@@ -94,6 +94,12 @@ def get_quantized_model(model_instance, quantization_level="4bit"):
     quantize_linear_layers(model_instance, config=quant_config, device=device)
     return model_instance
 
+def get_model_memory_MB(model):
+    param_size = sum(p.numel() * p.element_size() for p in model.parameters())
+    buffer_size = sum(b.numel() * b.element_size() for b in model.buffers())
+    total_size = (param_size + buffer_size) / (1024 ** 2)
+    print(f"Model memory (parameters + buffers): {total_size:.2f} MB")
+
 def main():
     parser = argparse.ArgumentParser(description="Quantize ViT model using bitsandbytes")
     parser.add_argument("--n_channels", type=int, default=3, help="Number of input channels")
@@ -114,6 +120,8 @@ def main():
     
     model = load_model(args.model_name).to(device)
     input_tensor = torch.randn(1, 3, 224, 224).to(device)
+
+    print(model)
     
     print("Before quantization:")
     print(f"Inference Time: {measure_inference_time(model, input_tensor, 1000):.6f} seconds")
@@ -127,10 +135,10 @@ def main():
     print(f"Inference Time: {measure_inference_time(model, input_tensor, 1000):.6f} seconds")
     allocated, reserved, peak = measure_memory_usage(model, input_tensor)
     print(f"Memory Allocated: {allocated:.2f} MB, Memory Reserved: {reserved:.2f} MB, Peak Memory: {peak:.2f} MB")
+
+    get_model_memory_MB(model)
     
-    # Save the quantized model
-    torch.save(model.state_dict(), args.output_path)
-    print(f"\nQuantized model saved as {args.output_path}")
+    print(model)
 
 if __name__ == "__main__":
     main()
