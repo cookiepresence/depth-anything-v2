@@ -16,7 +16,6 @@ from dataset import DepthEstimationDataset, create_depth_dataloaders, CutMix
 from evaluate import evaluate as eval_depth_maps
 from utils import RunningAverageDict, RunningAverage
 
-# Optional wandb import with handling
 try:
     import wandb
 except ImportError:
@@ -214,9 +213,13 @@ def train_step(model, train_dataloader, optimizer, scheduler, criterion, use_mas
             print("nan values out")
             exit(0)
         if use_masking:
-            log_diff = torch.abs(torch.log(out+1e-8) - torch.log(depth_maps + 1e-8))
-            pixel_loss = log_diff.detach()
-            mask = pixel_loss < masking_threshold
+            out_copy = out.clone().detach()
+            depth_maps_copy = depth_maps.clone().detach()
+            log_diff = torch.abs(torch.log(out_copy+1e-8) - torch.log(depth_maps_copy + 1e-8))
+            pixel_loss = log_diff
+            percentile = 70
+            masking_threshold = torch.quantile(pixel_loss.flatten(), percentile/100.0)
+            mask = (pixel_loss < masking_threshold).clone().detach()
             loss = criterion(out, depth_maps, mask)
         else:
             loss = criterion(out, depth_maps)
