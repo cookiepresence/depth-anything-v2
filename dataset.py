@@ -310,3 +310,115 @@ def create_depth_dataloaders(
     )
     
     return train_loader, val_loader
+
+class CutMix(torch.nn.Module):
+    """
+    CutMix augmentation module that can be used independently of class numbers.
+    This implementation focuses on the image mixing, allowing it to be used for
+    both classification and dense prediction tasks like depth estimation.
+
+    Args:
+        beta (float): Parameter for beta distribution. Default: 1.0
+        patch_size (int): Size of patches to use for granular mixing. Default: None
+                          If specified, cuts will be aligned to patch boundaries.
+    """
+    def __init__(self, beta=1.0, patch_size=None):
+        super().__init__()
+        self.beta = beta
+        self.patch_size = patch_size
+
+    def _rand_bbox(self, img_shape, lam):
+        """
+        Generate random bounding box for CutMix
+
+        Args:
+            img_shape (tuple): Shape of the image (B, C, H, W)
+            lam (float): Lambda parameter (controls the size of the box)
+
+        Returns:
+            tuple: (x1, y1, x2, y2) coordinates of the box
+        """
+        W = img_shape[3]
+        H = img_shape[2]
+
+        # Calculate cut ratio based on lambda
+        cut_rat = np.sqrt(1. - lam)
+
+        # Calculate cut width and height
+        cut_w = int(W * cut_rat)
+        cut_h = int(H * cut_rat)
+
+        # Uniform random center position
+        cx = np.random.randint(W)
+        cy = np.random.randint(H)
+
+        # Ensure box coordinates are within image boundaries
+        x1 = np.clip(cx - cut_w // 2, 0, W)
+        y1 = np.clip(cy - cut_h // 2, 0, H)
+        x2 = np.clip(cx + cut_w // 2, 0, W)
+        y2 = np.clip(cy + cut_h // 2, 0, H)
+
+        # If patch_size is specified, align to patch boundaries
+        if self.patch_size is not None:
+            # Round to nearest patch boundary
+            x1 = (x1 // self.patch_size) * self.patch_size
+            y1 = (y1 // self.patch_size) * self.patch_size
+            # Ensure x2 and y2 are also on patch boundaries
+            x2 = min(((x2 + self.patch_size - 1) // self.patch_size) * self.patch_size, W)
+            y2 = min(((y2 + self.patch_size - 1) // self.patch_size) * self.patch_size, H)
+
+        return x1, y1, x2, y2
+
+    def forward(self, img, target=None):
+        """
+        Apply CutMix to a batch of images and optionally targets (like depth maps)
+
+        Args:
+            img (torch.Tensor): Batch of images (B, C, H, W)
+            target (torch.Tensor, optional): Batch of targets like depth maps (B, C_t, H, W)
+                                            or (B, H, W) for single-channel targets
+
+        Returns:
+            tuple: If target is provided:
+                  (mixed images, mixed targets, lambda, source indices)
+                  If target is None:
+                  (mixed images, lambda, source indices)
+        """
+        # Get batch size
+        batch_size = img.size(0)
+
+        # Skip if batch size is 1 (can't mix with another image)
+        if batch_size <= 1:
+            if target is not None:
+                return img, target, 1.0, torch.arange(batch_size)
+            return img, 1.0, torch.arange(batch_size)
+
+        # Sample lambda from beta distribution
+        lam = np.random.beta(self.beta, self.beta)
+
+        # Randomly permute the batch to determine which images to mix
+        rand_index = torch.randperm(batch_size).to(img.device)
+
+        # Get bounding box coordinates
+        x1, y1, x2, y2 = self._rand_bbox(img.shape, lam)
+
+        # Create a copy of the original images
+        mixed_img = img.clone()
+
+        # Apply cutmix: replace the box region with the corresponding region from another image
+        mixed_img[:, :, y1:y2, x1:x2] = img[rand_index, :, y1:y2, x1:x2]
+
+        # If target is provided, apply the same mixing
+        mixed_target = None
+        if target is not None:
+            mixed_target = target.clone()
+            # as depth maps are of the shape [B, H, W] targets
+            mixed_target[:, y1:y2, x1:x2] = target[rand_index, y1:y2, x1:x2]
+
+        # Adjust lambda to reflect the actual area after clipping and patch alignment
+        lam = 1 - ((x2 - x1) * (y2 - y1) / (img.size(2) * img.size(3)))
+
+        # Return appropriate tuple based on whether target was provided
+        if target is not None:
+            return mixed_img, mixed_target, lam, rand_index
+        return mixed_img, lam, rand_index
