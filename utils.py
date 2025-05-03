@@ -131,18 +131,21 @@ def compute_errors(gt, pred):
             'rmse_log': Root mean squared error on the log scale
             'silog': Scale invariant log error
     """
+    assert (not np.isnan(gt).any()) and (not np.isnan(pred).any())
+    if len(gt) == 0 or len(pred) == 0:
+        return dict(abs_rel=0, rmse=0, rmse_log=0,
+                    silog=0, sq_rel=0)
 
+    abs_rel = np.nanmean(np.abs(gt - pred) / gt)
+    sq_rel = np.nanmean(((gt - pred) ** 2) / gt)
 
-    abs_rel = np.mean(np.abs(gt - pred) / gt)
-    sq_rel = np.mean(((gt - pred) ** 2) / gt)
+    rmse = (gt - pred + 1e-8) ** 2
+    rmse = np.sqrt(np.nanmean(rmse))
+    rmse_log = (np.log(gt + 1e-8) - np.log(pred + 1e-8)) ** 2
+    rmse_log = np.sqrt(np.nanmean(rmse_log))
 
-    rmse = (gt - pred) ** 2
-    rmse = np.sqrt(rmse.mean())
-    rmse_log = (np.log(gt) - np.log(pred)) ** 2
-    rmse_log = np.sqrt(rmse_log.mean())
-
-    err = np.log(pred) - np.log(gt)
-    silog = np.sqrt(np.mean(err ** 2) - np.mean(err) ** 2) * 100
+    err = np.log(pred + 1e-8) - np.log(gt + 1e-8)
+    silog = np.sqrt(np.nanmean(err ** 2) - np.nanmean(err) ** 2) * 100
 
     return dict(abs_rel=abs_rel, rmse=rmse, rmse_log=rmse_log,
                 silog=silog, sq_rel=sq_rel)
