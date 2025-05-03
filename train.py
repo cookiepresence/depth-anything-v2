@@ -210,6 +210,9 @@ def train_step(model, train_dataloader, optimizer, scheduler, criterion, use_mas
 
         optimizer.zero_grad()
         out = model(imgs)
+        if torch.isnan(out).any():
+            print("nan values out")
+            exit(0)
         if use_masking:
             log_diff = torch.abs(torch.log(out+1e-8) - torch.log(depth_maps + 1e-8))
             pixel_loss = log_diff.detach()
