@@ -235,32 +235,19 @@ class DepthEstimationDataset(Dataset):
             Normalized depth array as float32 in range [0, 1]
         """
         # Handle edge case of empty depth
+        depth_array = depth_array.to(torch.float)
         if depth_array.max() == depth_array.min():
             return torch.zeros_like(depth_array)
 
         mask = (depth_array > 0) & (depth_array < 65536)
+        # return inv_depth
 
-        inv_depth = torch.zeros_like(depth_array, dtype=torch.float32)
-        inv_depth[mask] = 1.0 / depth_array[mask].float()
-
-        inv_min = inv_depth[mask].min()
-        inv_max = inv_depth[mask].max()
-
-        if inv_min == inv_max:
-            return torch.zeros_like(depth_array, dtype = torch.float32)
-        
-        normalized = torch.zeros_like(depth_array, dtype=torch.float32)
-        normalized[mask] = (inv_depth[mask]-inv_min) / (inv_max - inv_min)
-
+        # Normalize to [0, 1]
+        depth_array = 1 / depth_array
+        depth_min = depth_array[mask].min()
+        depth_max = depth_array[mask].max()
+        normalized = (depth_array - depth_min) / (depth_max - depth_min)
         return normalized
-
-        # # Normalize to [0, 1]
-        # depth_array = 1 / depth_array
-        # depth_min = depth_array[mask].min()
-        # depth_max = depth_array[mask].max()
-        # normalized = (depth_array - depth_min) / (depth_max - depth_min)
-        # return normalized
-
 
 def create_depth_dataloaders(
     root_dir: Union[str, Path],
