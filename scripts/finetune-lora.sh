@@ -22,21 +22,23 @@ source .venv/bin/activate
 
 # Run the training script
 python train.py \
-    --model vits \
+    --model vitl \
     --dataset-path /scratch/soccernet/ \
     --sport-name basketball \
     --seed 42 \
     --train-batch-size 2 \
-    --val-batch-size 16 \
+    --val-batch-size 12 \
     --epochs 15 \
-    --backbone-lr 5e-6 \
+    --backbone-lr 0 \
     --head-lr 1e-4 \
     --weight-decay 1e-5 \
-    --experiment-name "depth_v2_masking_70_percent_switch_3_${SLURM_JOB_ID}" \
-    --use-masking \
-    # --use-wandb \
-    # --use-cutmix \
-    # --use-registers
+    --use-wandb \
+    --experiment-name "depth_v2_vitl_lora-64_${SLURM_JOB_ID}" \
+    --use-lora \
+    --lora-rank 64 \
+    --lora-alpha 16 \
+    --lora-modules layer1_rn layer2_rn layer3_rn layer4_rn \
+    --use-cutmix
 
 # Print end time
 echo "End time: $(date)"
