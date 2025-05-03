@@ -22,7 +22,7 @@ class DepthEstimationDataset(Dataset):
     PyTorch Dataset for monocular depth estimation that loads images from a folder structure
     along with metadata.
     """
-    
+
     def __init__(
         self,
         root_dir: Union[str, Path],
@@ -34,7 +34,7 @@ class DepthEstimationDataset(Dataset):
     ):
         """
         Initialize the dataset.
-        
+
         Args:
             root_dir: Root directory containing game folders
             sport_name: Sport name to include in metadata
@@ -48,15 +48,15 @@ class DepthEstimationDataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.crop_size = crop_size
-        
+
         # Collect all image paths and metadata
         self.samples = self._collect_samples()
         self.apply_augmentations=apply_augmentations
-        
+
         # Define augmentations for training
         if self.apply_augmentations:
             # pass
-            self.augmentations = v2.Compose([ 
+            self.augmentations = v2.Compose([
                 # Random cropping with padding
                 # v2.RandomResizedCrop(
                 #     size=(crop_size, crop_size)
@@ -70,10 +70,10 @@ class DepthEstimationDataset(Dataset):
                 # v2.RandomAutocontrast(p=0.3),
                 # v2.RandomEqualize(p=0.2),
                 # # Random Gaussian blur
-                v2.GaussianBlur(
-                    kernel_size=(5, 5),
-                    sigma=(0.1, 0.1)
-                )
+                # v2.GaussianBlur(
+                #     kernel_size=(5, 5),
+                #     sigma=(0.1, 0.1)
+                # )
                 # Additional color distortions
                 # Random grayscale to simulate challenging lighting
                 # v2.RandomGrayscale(p=0.1),
@@ -101,43 +101,43 @@ class DepthEstimationDataset(Dataset):
         # Iterate through game folders
         for game_folder in sorted(self.root_dir.glob("game_*")):
             game_number = int(game_folder.name.split("_")[1])
-            
+
             # Load metadata from JSON file
             json_file = game_folder / f"{game_folder.name}.json"
             if not json_file.exists():
                 continue
-                
+
             with open(json_file, "r") as f:
                 json_data = json.load(f)
-            
+
             # Handle both single game and multiple game JSON formats
             if isinstance(json_data, list):
                 video_metadatas = json_data
             else:
                 video_metadatas = [json_data]
-            
+
             # Process each video in the game folder
             for video_idx, video_metadata in enumerate(video_metadatas, 1):
                 video_folder = game_folder / f"video_{video_idx}"
-                
+
                 if not video_folder.exists():
                     continue
-                    
+
                 # Get color and depth_r folders
                 color_folder = video_folder / "color"
                 depth_r_folder = video_folder / "depth_r"
-                
+
                 if not color_folder.exists() or not depth_r_folder.exists():
                     continue
-                
+
                 # Get number of frames from metadata
                 num_frames = int(video_metadata.get("Number of frames", 0))
-                
+
                 # Collect all valid frame pairs
                 for frame_path in sorted(color_folder.glob("*.png")):
                     frame_number = int(frame_path.stem)
                     depth_path = depth_r_folder / f"{frame_number}.png"
-                    
+
                     if depth_path.exists():
                         samples.append({
                             "color_path": str(frame_path),
@@ -148,26 +148,29 @@ class DepthEstimationDataset(Dataset):
                             "sport_name": self.sport_name,
                             "total_frames": num_frames
                         })
-        
+
         return samples
-    
+
+
     def __len__(self) -> int:
         """Return the total number of samples."""
         return len(self.samples)
-    
+
     def __getitem__(self, idx: int) -> Dict:
         """
         Load a single item by index.
-        
+
         Returns:
             Dict containing:
                 - image: RGB image tensor
                 - depth: Normalized depth tensor
-                - metadata: Dict with game_number, video_number, frame_number, 
+                - metadata: Dict with game_number, video_number, frame_number,
                   sport_name, and total_frames
         """
+        # print(f"requested {idx}")
         sample_info = self.samples[idx]
-        
+
+        # print(f"opening {idx}")
         # Load color image
         color_img = cv2.imread(sample_info["color_path"], cv2.IMREAD_COLOR)
         color_img = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
@@ -195,25 +198,29 @@ class DepthEstimationDataset(Dataset):
                 v2.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD)
             ])(color_img)
             color_img = color_img.to(torch.float)
-        
+
         # Apply training augmentations if enabled
         if self.apply_augmentations:
             # Create a dictionary containing both image and depth for joint transforms
             # Some augmentations (like RandomCrop, RandomPerspective) should be applied to both
             augmented = self.augmentations({"image": color_img})
             color_img = augmented["image"]
-        
+            # gamma_val = random.uniform(0.75, 1.25)
+            # color_img = TF.adjust_gamma(color_img, gamma_val)
+
+            # color_img = torchvision.transforms.functional.adjust_gamma(color_img, gamma=)
+
         # Normalize depth (16-bit depth to normalized float)
         depth_normalized = self._normalize_depth(depth_img)
-        
+
         # Apply transformations if provided
-        
+
         if self.target_transform:
             depth_tensor = self.target_transform(depth_normalized)
         else:
             # Default: convert normalized depth to tensor
             depth_tensor = depth_normalized
-        
+
         # Extract metadata
         metadata = {
             "game_number": sample_info["game_number"],
@@ -222,15 +229,16 @@ class DepthEstimationDataset(Dataset):
             "sport_name": sample_info["sport_name"],
             "total_frames": sample_info["total_frames"]
         }
+        # print(f"returning {idx}")
         return color_img, depth_tensor, metadata
 
     def _normalize_depth(self, depth_array):
         """
         Normalize the 16-bit depth map to [0, 1] range.
-        
+
         Args:
             depth_array: Raw depth array (16-bit)
-            
+
         Returns:
             Normalized depth array as float32 in range [0, 1]
         """
@@ -260,7 +268,7 @@ def create_depth_dataloaders(
 ) -> Tuple[DataLoader, DataLoader]:
     """
     Create train and validation dataloaders.
-    
+
     Args:
         root_dir: Root directory with the data
         sport_name: Sport name to include in metadata
@@ -269,7 +277,7 @@ def create_depth_dataloaders(
         crop_size: Size to crop the shorter side to
         num_workers: Number of workers for dataloaders
         seed: Random seed for reproducibility
-        
+
     Returns:
         Tuple of (train_dataloader, val_dataloader)
     """
@@ -293,7 +301,7 @@ def create_depth_dataloaders(
 
     # Set random seed for reproducibility
     torch.manual_seed(seed)
-    
+
     # Create dataloaders
     train_loader = DataLoader(
         train_dataset,
@@ -303,7 +311,7 @@ def create_depth_dataloaders(
         persistent_workers=True,
         pin_memory=True,
     )
-    
+
     val_loader = DataLoader(
         val_dataset,
         batch_size=val_batch_size,
@@ -312,7 +320,7 @@ def create_depth_dataloaders(
         persistent_workers=True,
         pin_memory=True,
     )
-    
+
     return train_loader, val_loader
 
 class CutMix(torch.nn.Module):
