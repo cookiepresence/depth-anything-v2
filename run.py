@@ -90,6 +90,9 @@ if __name__ == '__main__':
     
     for k, (filename, filename_gt) in enumerate(tqdm(zip(image_files, gt_files))):
 
+        if k>100:
+            break
+
         if not os.path.exists(filename_gt):
             print(f"Warning: ground truth file not found: {filename_gt}, skippnig")
             continue        
