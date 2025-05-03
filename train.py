@@ -7,6 +7,7 @@ import PIL.Image as Image
 import argparse
 import os
 import tqdm
+import peft
 
 from depth_anything_v2.dpt import DepthAnythingV2
 from depth_anything_v2.util.transform import Resize, NormalizeImage, PrepareForNet
@@ -31,6 +32,76 @@ MODEL_CONFIG = {
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+def scale_and_shift(pred, target, mask):
+
+    batch_size = pred.shape[0]
+
+    h, w = pred.shape[1], pred.shape[2]
+    pred_flat = pred.view(batch_size, -1)  # B x (H*W)
+    target_flat = target.view(batch_size, -1)  # B x (H*W)
+    mask_flat = mask.view(batch_size, -1)  # B x (H*W)
+
+    if torch.isnan(pred_flat).any() or torch.isnan(target_flat).any():
+        print("Warning: NaN values found in input tensors")
+        exit(0)
+
+    mask_flat = mask_flat.bool().float()
+    valid_pixels = mask_flat.sum(dim=1)
+    # if (valid_pixels < 10).any():
+    #     print(f"Warning: Very few valid pixels in some samples: {valid_pixels}")
+
+    a_00 = torch.sum(mask_flat * pred_flat * pred_flat, dim=1)  # B
+    a_01 = torch.sum(mask_flat * pred_flat, dim=1)  # B
+    a_11 = torch.sum(mask_flat, dim=1)  # B
+
+    b_0 = torch.sum(mask_flat * pred_flat * target_flat, dim=1)  # B
+    b_1 = torch.sum(mask_flat * target_flat, dim=1)  # B
+
+    det = a_00 * a_11 - a_01 * a_01  # B
+
+    scale = torch.ones(batch_size, device=pred.device)
+    shift = torch.zeros(batch_size, device=pred.device)
+
+    eps = 1e-8 * torch.max(a_00) * torch.max(a_11)  # Dynamic threshold
+    valid = (det > eps) & (a_11 > 0)  # Additional check for a_11 positivity
+    
+    # Apply safeguards for numerical stability
+    # if valid.sum() < batch_size:
+    #     print(f"Warning: {batch_size - valid.sum()} samples have unstable determinants")
+
+    scale[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
+    shift[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
+
+
+    if torch.isnan(scale).any() or torch.isnan(shift).any():
+        print("NaNs found in scale or shift!")
+        exit(0)
+
+    scaled_pred = scale.view(batch_size, 1, 1) * pred + shift.view(batch_size, 1, 1)
+
+    if torch.isnan(scaled_pred).any():
+        print("NaNs found in final output!")
+        exit(0)
+
+    return scaled_pred
+
+def global_normalization(depth_maps):
+
+    batch_size = depth_maps.shape[0]
+    normalized_maps = torch.zeros_like(depth_maps)
+
+    depth_maps_flat = depth_maps.reshape(batch_size, -1)
+
+    median = torch.median(depth_maps_flat, dim=1, keepdim=True).values
+
+    abs_diff = torch.abs(depth_maps_flat - median)
+    mad = torch.mean(abs_diff, dim=1, keepdim=True)
+    mad = torch.clamp(mad, min=1e-8)
+
+    normalized_maps_flat = (depth_maps_flat - median) / mad
+    normalized_maps = normalized_maps_flat.reshape(depth_maps.shape)
+
+    return normalized_maps
 
 def SILogLoss(pred, target, mask=None, variance_focus=0.85):
     """
