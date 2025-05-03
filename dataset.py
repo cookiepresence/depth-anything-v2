@@ -80,7 +80,21 @@ class DepthEstimationDataset(Dataset):
                 # Random perspectives to simulate different viewpoints
                 # v2.RandomPerspective(distortion_scale=0.2, p=0.3),
             ])
-        
+
+        self.resize_transform = v2.Compose([
+            Resize(
+                width=self.crop_size,
+                height=self.crop_size,
+                resize_target=True,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=14,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            v2.ToImage(),
+            v2.RandomHorizontalFlip(p=0.1)
+        ])
+
     def _collect_samples(self) -> List[Dict]:
         """Collect all valid samples with their paths and metadata."""
         samples = []
@@ -155,26 +169,23 @@ class DepthEstimationDataset(Dataset):
         sample_info = self.samples[idx]
         
         # Load color image
-        color_img = np.array(Image.open(sample_info["color_path"]).convert("RGB")) / 255.0
-        
-        # Load depth image (16-bit)
-        depth_img = np.array(Image.open(sample_info["depth_path"]), dtype=np.float32)
-        
-        # Center crop to target size
-        resize_transform = v2.Compose([
-            Resize(
-                width=self.crop_size,
-                height=self.crop_size,
-                resize_target=True,
-                keep_aspect_ratio=True,
-                ensure_multiple_of=14,
-                resize_method='lower_bound',
-                image_interpolation_method=cv2.INTER_CUBIC,
-            ),
-            v2.ToImage(),
-            v2.RandomHorizontalFlip(p=0.1)
-        ])
-        sample = resize_transform({"image": color_img, "depth": depth_img})
+        color_img = cv2.imread(sample_info["color_path"], cv2.IMREAD_COLOR)
+        color_img = cv2.cvtColor(color_img, cv2.COLOR_BGR2RGB)
+        color_img = color_img / 255.0
+
+        depth_img = cv2.imread(sample_info["depth_path"], cv2.IMREAD_UNCHANGED).astype(np.float32)
+    
+        # img = Image.open(sample_info["color_path"]).convert("RGB")
+        # color_img = np.array(img) / 255.0
+        # img.close()
+
+        # # Load depth image (16-bit)
+        # depth = Image.open(sample_info["depth_path"])
+        # depth_img = np.array(depth, dtype=np.float32)
+        # depth.close()
+        # # print(f"closing {idx}")
+
+        sample = self.resize_transform({"image": color_img, "depth": depth_img})
         color_img = sample['image']
         depth_img = sample['depth']
         if self.transform:
