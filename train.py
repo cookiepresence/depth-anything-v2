@@ -118,10 +118,23 @@ def SILogLoss(pred, target, mask=None, variance_focus=0.85):
     if mask is None:
         mask = (target > 0).detach()
     
-    mask[870:1016, 1570:1829] = 0
+    mask[:, 870:1016, 1570:1829] = 0
 
+    # scaled_pred = scale_and_shift(pred, target, mask)
+
+    # assert not torch.isnan(scaled_pred).any()
+
+    # pred = torch.where(mask, pred, 0)
     pred = pred[mask]
+    # target = torch.where(mask, target, 0)
     target = target[mask]
+
+    # norm_student_depth = global_normalization(pred)
+    # norm_teacher_depth = global_normalization(target)
+
+    # loss = torch.mean(torch.abs(norm_student_depth - norm_teacher_depth))
+
+    # return loss
 
     log_diff = torch.log(pred + 1e-8) - torch.log(target + 1e-8)
     mean_log_diff_squared = torch.mean(log_diff ** 2)
@@ -136,7 +149,11 @@ def GradientMatchingLoss(pred, target, mask=None):
     if mask is None:
         mask = (target > 0).detach()
     
-    mask[870:1016, 1570:1829] = 0
+    mask[:, 870:1016, 1570:1829] = 0
+
+    # scaled_pred = scale_and_shift(pred, target, mask)
+
+    # assert not torch.isnan(scaled_pred).any()
 
     pred = torch.where(mask, pred, 0)
     target = torch.where(mask, target, 0)
@@ -149,8 +166,9 @@ def GradientMatchingLoss(pred, target, mask=None):
 
     return (torch.sum(h_grad) + torch.sum(v_grad)) / N
 
-def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=2.0):
+def loss_criterion(preds, target, mask=None, variance_focus=0.85, alpha=3.0):
     return SILogLoss(preds, target, mask, variance_focus) + alpha * GradientMatchingLoss(preds, target, mask)
+    # return SILogLoss(preds, target, mask, variance_focus)
 
 def load_model(model_name: str, use_registers: bool = False, model_weights: str = None):
     model_name_r = model_name + '_r' if use_registers else model_name
