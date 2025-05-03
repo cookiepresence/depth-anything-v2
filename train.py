@@ -11,7 +11,7 @@ import tqdm
 from depth_anything_v2.dpt import DepthAnythingV2
 from depth_anything_v2.util.transform import Resize, NormalizeImage, PrepareForNet
 
-from dataset import DepthEstimationDataset, create_depth_dataloaders
+from dataset import DepthEstimationDataset, create_depth_dataloaders, CutMix
 from evaluate import evaluate as eval_depth_maps
 from utils import RunningAverageDict, RunningAverage
 
@@ -97,10 +97,13 @@ def load_model(model_name: str, use_registers: bool = False, model_weights: str 
     depth_anything = depth_anything.to(DEVICE)
     return depth_anything
 
-def train_step(model, train_dataloader, optimizer, criterion, use_masking = False, masking_threshold = 0.005):
+def train_step(model, train_dataloader, optimizer, scheduler, criterion, use_masking = False, use_cutmix: bool = True):
     model.train()
     train_loss = RunningAverageDict()
     batch_train_loss = []
+
+    if use_cutmix:
+        cutmix = CutMix(beta=1, patch_size=14)
 
     for imgs, depth_maps, metadata in tqdm.tqdm(train_dataloader):
         if torch.isnan(imgs).any():
@@ -112,6 +115,10 @@ def train_step(model, train_dataloader, optimizer, criterion, use_masking = Fals
         imgs = imgs.to(DEVICE)
         depth_maps = depth_maps.to(DEVICE).squeeze(1)
 
+        # apply cutmix
+        if use_cutmix:
+            imgs, depth_maps, _, _ = cutmix(imgs, depth_maps)
+
         optimizer.zero_grad()
         out = model(imgs)
         if use_masking:
@@ -122,12 +129,14 @@ def train_step(model, train_dataloader, optimizer, criterion, use_masking = Fals
         else:
             loss = criterion(out, depth_maps)
 
+        # print(loss.item())
         loss.backward()
         batch_train_loss.append(loss.item())
         optimizer.step()
 
         train_loss.update({"loss": loss.item()})
 
+    scheduler.step()
     return train_loss.get_value(), batch_train_loss
 
 def eval_step(model, val_dataloader, criterion, sport_name):
@@ -159,9 +168,13 @@ def train(
         epochs: int,
         backbone_lr: float,
         dpt_head_lr: float,
+        weight_decay: float,
         use_wandb: bool,
         sport_name: str = None,
         experiment_name: str = None,
+        use_cutmix: bool = True,
+        use_lora: bool = False,
+        min_lr_factor: float = 1e-2,
         save_dir: str = "saved_models"
 ):
     # Set up different parameter groups with different learning rates
@@ -175,10 +188,26 @@ def train(
             head_params.append(param)
 
     # Set up optimizer with parameter groups
-    optimizer = torch.optim.Adam([
-        {'params': backbone_params, 'lr': backbone_lr},
-        {'params': head_params, 'lr': dpt_head_lr}
-    ])
+    if backbone_lr == 0.0:
+        optimizer = torch.optim.Adam([
+            {'params': head_params, 'lr': dpt_head_lr}
+        ], weight_decay = weight_decay)
+        # ensure that we freeze backbone params correctly
+        for p in backbone_params:
+            p.requires_grad_(False)
+    else:
+        optimizer = torch.optim.Adam([
+            {'params': backbone_params, 'lr': backbone_lr},
+            {'params': head_params, 'lr': dpt_head_lr}
+        ], weight_decay = weight_decay)
+
+    min_lr = dpt_head_lr * min_lr_factor
+    # num_training_steps = epochs * len(train_dataloader)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=epochs,
+        eta_min=min_lr  # This will be scaled for each param group
+    )
 
     # Define loss function
     # criterion = torch.nn.L1Loss()
@@ -194,6 +223,7 @@ def train(
             "dpt_head_lr": dpt_head_lr,
             "train_batch_size": train_dataloader.batch_size,
             "val_batch_size": val_dataloader.batch_size,
+            "min_lr_factor": min_lr_factor,
         })
 
     # Create directory to save models if it doesn't exist
@@ -219,9 +249,9 @@ def train(
             use_dynamic_mask = ((epoch) % (switch_every_n_epochs+1) == switch_every_n_epochs)
             print(f"Dynamic mask: {use_dynamic_mask}")
         # Training step
-            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, criterion, use_dynamic_mask)
+            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, scheduler, criterion, use_dynamic_mask, use_cutmix=use_cutmix)
         else:
-            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, criterion)
+            train_loss, batch_train_loss = train_step(model, train_dataloader, optimizer, scheduler, criterion, use_cutmix=use_cutmix)
         train_loss = train_loss['loss']
 
         # Validation step
@@ -283,10 +313,16 @@ def main(
         epochs: int = 30,
         backbone_lr: float = 1e-5,
         dpt_head_lr: float = 1e-4,
+        weight_decay: float = 1e-3,
         use_wandb: bool = False,
         experiment_name: str = None,
         use_registers: bool = False,
-        model_weights: str = None
+        model_weights: str = None,
+        use_cutmix: bool = True,
+        use_lora: bool = False,
+        lora_rank: int = 2,
+        lora_alpha: int = 16,
+        lora_modules: List[str] = ["qkv"],
 ):
     # Set random seed for reproducibility
     torch.manual_seed(seed)
@@ -298,6 +334,15 @@ def main(
 
     # Load model
     model = load_model(model_name, use_registers, model_weights)
+    if use_lora:
+        print(f"Lora modules: {lora_modules[0]}")
+        lora_config = peft.LoraConfig(
+            r=lora_rank,
+            target_modules=lora_modules[0],
+            lora_alpha=lora_alpha,
+            lora_dropout=0.05
+        )
+        peft.get_peft_model(model, lora_config)
 
     # Create dataloaders
     train_dataloader, val_dataloader = create_depth_dataloaders(
@@ -316,9 +361,12 @@ def main(
         epochs,
         backbone_lr,
         dpt_head_lr,
+        weight_decay,
         use_wandb,
         sport_name,
-        experiment_name
+        experiment_name,
+        use_cutmix,
+        use_lora,
     )
 
 if __name__ == '__main__':
@@ -341,6 +389,8 @@ if __name__ == '__main__':
                         help='Learning rate for backbone parameters')
     parser.add_argument('--head-lr', dest='head_lr', type=float, default=1e-5,
                         help='Learning rate for DPT head parameters')
+    parser.add_argument('--weight-decay', type=float, default=5e-6,
+                        help='Weight decay for model')
     parser.add_argument('--use-wandb', dest='use_wandb', action='store_true',
                         help='Enable Weights & Biases logging')
     parser.add_argument('--experiment-name', dest='experiment_name', type=str, default=None,
@@ -348,6 +398,12 @@ if __name__ == '__main__':
     parser.add_argument('--use-registers', action='store_true', help='use dino backbone with registers')
     parser.add_argument('--model-weights', type=str, help = 'model weights to use and begin training from', required=False)
     parser.add_argument('--use-masking', action='store_true', help="use alternate masking while finetuning")
+    parser.add_argument('--use-cutmix', action='store_true', help='use cutmix while training to improve performance')
+
+    parser.add_argument('--use-lora', action='store_true', help='use lora while training to speed things up?')
+    parser.add_argument('--lora-rank', type=int, help='what is the rank of updates?')
+    parser.add_argument('--lora-alpha', type=int, help='scaling factor for lora updates')
+    parser.add_argument('--lora-modules', type=str, nargs='+', default=[], action='append', help='what modules to apply lora on?')
 
     args = parser.parse_args()
 
@@ -361,8 +417,14 @@ if __name__ == '__main__':
         epochs=args.epochs,
         backbone_lr=args.backbone_lr,
         dpt_head_lr=args.head_lr,
+        weight_decay=args.weight_decay,
         use_wandb=args.use_wandb,
         experiment_name=args.experiment_name,
         use_registers=args.use_registers,
-        model_weights = args.model_weights
+        model_weights = args.model_weights,
+        use_cutmix = args.use_cutmix,
+        use_lora=args.use_lora,
+        lora_rank=args.lora_rank,
+        lora_alpha=args.lora_alpha,
+        lora_modules=args.lora_modules,
     )
