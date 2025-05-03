@@ -63,12 +63,12 @@ class DepthEstimationDataset(Dataset):
                 # ),
                 # Strong color jitter
                 v2.ColorJitter(
-                    brightness=0.2,
+                    brightness=0.1,
                     hue=0.1
                 ),
-                v2.RandomAdjustSharpness(sharpness_factor=2, p=0.5),
-                v2.RandomAutocontrast(p=0.3),
-                v2.RandomEqualize(p=0.2),
+                # v2.RandomAdjustSharpness(sharpness_factor=2, p=0.5),
+                # v2.RandomAutocontrast(p=0.3),
+                # v2.RandomEqualize(p=0.2),
                 # # Random Gaussian blur
                 v2.GaussianBlur(
                     kernel_size=(5, 5),
