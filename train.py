@@ -384,15 +384,16 @@ def train(
 
         # Save checkpoint every 5 epochs
         if (epoch + 1) % 5 == 0:
-            checkpoint_path = os.path.join(save_dir, f"checkpoint_epoch_{epoch+1}_{experiment_name}.pth")
-            torch.save({
-                'epoch': epoch + 1,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'train_loss': train_loss,
-                'val_loss': val_loss,
-            }, checkpoint_path)
-            print(f"Saved checkpoint to {checkpoint_path}")
+            # checkpoint_path = os.path.join(save_dir, f"checkpoint_epoch_{epoch+1}_{experiment_name}.pth")
+            # torch.save({
+            #     'epoch': epoch + 1,
+            #     'model_state_dict': model.state_dict(),
+            #     'optimizer_state_dict': optimizer.state_dict(),
+            #     'train_loss': train_loss,
+            #     'val_loss': val_loss,
+            # }, checkpoint_path)
+            # print(f"Saved checkpoint to {checkpoint_path}")
+            pass
 
     # Close wandb run if it was used
     if use_wandb and wandb is not None:
